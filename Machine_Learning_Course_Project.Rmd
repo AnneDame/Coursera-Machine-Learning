@@ -1,0 +1,144 @@
+---
+title: "Machine Learning Course Project"
+author: "Anne Suchel"
+date: "5 décembre 2017"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Executive Summary
+
+In this project, we will analyse data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. The data for this project come from : <http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har>
+
+The goal of the project is to predict the manner in which the participant did the exercice. This is the "classe" variable in the training set.
+
+The first step will be to the select the variables that would be usefull predictors and then do some preprocessing. The second step will be fitting several model on a training set : random forest, boosting and linear discriminant analysis. The final step will be choosing the more accurate model according to the accuracy of each model on a cross validation data set.
+
+##Data
+
+We will need the folowing library :
+```{r, echo=FALSE}
+setwd('D:/Documents/Actuariat/Formation Big Data Coursera/08-Practical Machine Learning/Week 4 - Regularized Regression and Combining Predictors/Course Project')
+```
+```{r , warnings=FALSE, results='hold', message=FALSE}
+library(ggplot2)
+library(caret)
+library(dplyr)
+```
+
+The data is avalaible on the website of the group of research and developpement of groupware technologies. The data can be downloaded here : <https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>.
+
+We create a training set and a cross validation set which will allow us to choose the best model.
+
+```{r , include=TRUE}
+training=read.csv("pml-training.csv",na.strings=c('NA','#DIV/0!',''))
+
+testing=read.csv("pml-testing.csv",na.strings=c('NA','#DIV/0!',''))
+
+inTrain <- createDataPartition(y=training$classe,p=0.80,list=FALSE)
+traind <- training[inTrain,]
+crossvd <- training[-inTrain,]
+
+traind$classe <- as.factor(traind$classe)
+crossvd$classe <- as.factor(crossvd$classe)
+```
+Let's have a look at the distribution of the different classes :
+
+```{r , include=TRUE}
+qplot(classe,data=traind)
+```
+
+##Prepocessing
+
+The overview of the data set make us notice that the 7 first variables might not be very usefull as predictors. What's more we choose to center and scale the data (in order to prevent issue comming from predictors that are skewded) and to perform a Principal Components Analysis. Indeed, there is a lot of predictors and a weighted combinaison of predictors might be better. It will also reduce the noise.
+
+```{r , message=FALSE}
+traind2 <- select(traind,-c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,cvtd_timestamp,new_window,num_window,amplitude_yaw_forearm,skewness_yaw_forearm,kurtosis_yaw_forearm,amplitude_yaw_dumbbell,skewness_yaw_dumbbell,kurtosis_yaw_dumbbell,skewness_yaw_belt,kurtosis_yaw_belt,amplitude_yaw_belt))
+
+which(colnames(traind2) == "classe")
+
+preProc1 <- preProcess(traind2[,-144],method=c("center","scale"))
+traind3 <- predict(preProc1,traind2)
+
+traind3[is.na(traind3)] <- 0
+
+preProc2 <- preProcess(traind3,method="pca")
+preProc2
+
+traind4 <- predict(preProc2,traind3)
+```
+
+We then have to perform the same preprocessing on the cross validation data set.
+
+```{r , message=FALSE}
+crossvd2 <- select(crossvd,-c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,cvtd_timestamp,new_window,num_window,amplitude_yaw_forearm,skewness_yaw_forearm,kurtosis_yaw_forearm,amplitude_yaw_dumbbell,skewness_yaw_dumbbell,kurtosis_yaw_dumbbell,skewness_yaw_belt,kurtosis_yaw_belt,amplitude_yaw_belt))
+
+crossvd3 <- predict(preProc1,crossvd2)
+
+crossvd3[is.na(crossvd3)] <- 0
+
+crossvd4 <- predict(preProc2,crossvd3)
+```
+
+##Model Fitting
+
+###Random Forest
+
+```{r , include=TRUE, results=FALSE, message=FALSE}
+modRF <- train(classe ~ .,
+                data = traind4, 
+                method = 'rf', 
+                trControl = trainControl(method = "cv", 
+                                         number = 4, 
+                                         allowParallel = TRUE, 
+                                         verboseIter = TRUE))
+predRF <- predict(modRF,newdata=crossvd4)
+cmRF <- confusionMatrix(predRF,crossvd2$classe)
+```
+###Boosting
+
+```{r, message=FALSE, results=FALSE}
+modGBM <- train(classe ~.,
+                data=traind4,
+                method="gbm",
+                trControl = trainControl(method = "cv", 
+                                         number = 4, 
+                                         allowParallel = TRUE, 
+                                         verboseIter = TRUE))
+
+predGBM <- predict(modGBM,newdata=crossvd4)
+cmGBM <- confusionMatrix(predGBM,crossvd4$classe)
+```
+
+###Linear Discriminant Analysis
+
+```{r, message=FALSE, results=FALSE}
+modLDA <- train(classe ~.,
+                data=traind4,
+                method="lda",
+                trControl = trainControl(method = "cv", 
+                                         number = 4, 
+                                         allowParallel = TRUE, 
+                                         verboseIter = TRUE))
+
+predLDA <- predict(modLDA,newdata=crossvd4)
+cmLDA <- confusionMatrix(predLDA,crossvd4$classe)
+
+```
+
+##Final Choice
+
+We will choose the model which have the highest Accuracy.
+
+```{r}
+cmRF
+cmGBM
+cmLDA
+```
+
+It is the Random Forest that gives the highest accuracy of 97% so we keep this model and we will apply it on the test dataset.
